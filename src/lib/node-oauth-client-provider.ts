@@ -6,13 +6,15 @@ import {
   OAuthTokens,
   OAuthTokensSchema,
 } from '@modelcontextprotocol/sdk/shared/auth.js'
-import type { OAuthProviderOptions, StaticOAuthClientMetadata } from './types'
+import type { OAuthProviderOptions, StaticOAuthClientMetadata, TLSClientCertConfig } from './types'
 import { readJsonFile, writeJsonFile, readTextFile, writeTextFile, deleteConfigFile } from './mcp-auth-config'
 import { StaticOAuthClientInformationFull } from './types'
 import { log, debugLog, MCP_REMOTE_VERSION } from './utils'
 import { sanitizeUrl } from 'strict-url-sanitise'
 import { randomUUID } from 'node:crypto'
 import { fetchAuthorizationServerMetadata, type AuthorizationServerMetadata } from './authorization-server-metadata'
+import { Agent } from 'undici'
+import { readFileSync } from 'fs'
 
 /**
  * Implements the OAuthClientProvider interface for Node.js environments.
@@ -31,6 +33,8 @@ export class NodeOAuthClientProvider implements OAuthClientProvider {
   private _state: string
   private _clientInfo: OAuthClientInformationFull | undefined
   private authorizationServerMetadata: AuthorizationServerMetadata | undefined
+  private tlsClientCert: TLSClientCertConfig | undefined
+  private customAgent: Agent | undefined
 
   /**
    * Creates a new NodeOAuthClientProvider
@@ -49,6 +53,13 @@ export class NodeOAuthClientProvider implements OAuthClientProvider {
     this._state = randomUUID()
     this._clientInfo = undefined
     this.authorizationServerMetadata = options.authorizationServerMetadata
+    this.tlsClientCert = options.tlsClientCert
+
+    // Create custom agent if TLS cert config is provided
+    if (this.tlsClientCert) {
+      debugLog('Creating custom TLS agent with client certificate')
+      this.customAgent = this.createTLSAgent()
+    }
   }
 
   get redirectUrl(): string {
@@ -76,6 +87,78 @@ export class NodeOAuthClientProvider implements OAuthClientProvider {
   }
 
   /**
+   * Creates an undici Agent with TLS client certificate configuration
+   * @returns A configured Agent instance
+   */
+  private createTLSAgent(): Agent {
+    if (!this.tlsClientCert) {
+      throw new Error('TLS client cert config is required')
+    }
+
+    const tlsOptions: any = {}
+
+    // Load certificate files
+    if (this.tlsClientCert.cert) {
+      debugLog('Loading TLS client certificate', { cert: this.tlsClientCert.cert })
+      try {
+        tlsOptions.cert = readFileSync(this.tlsClientCert.cert)
+        log(`Loaded TLS client certificate from: ${this.tlsClientCert.cert}`)
+      } catch (error) {
+        log(`Error loading TLS client certificate: ${error}`)
+        throw error
+      }
+    }
+
+    if (this.tlsClientCert.key) {
+      debugLog('Loading TLS client key', { key: this.tlsClientCert.key })
+      try {
+        tlsOptions.key = readFileSync(this.tlsClientCert.key)
+        log(`Loaded TLS client key from: ${this.tlsClientCert.key}`)
+      } catch (error) {
+        log(`Error loading TLS client key: ${error}`)
+        throw error
+      }
+    }
+
+    if (this.tlsClientCert.ca) {
+      debugLog('Loading TLS CA certificate', { ca: this.tlsClientCert.ca })
+      try {
+        tlsOptions.ca = readFileSync(this.tlsClientCert.ca)
+        log(`Loaded TLS CA certificate from: ${this.tlsClientCert.ca}`)
+      } catch (error) {
+        log(`Error loading TLS CA certificate: ${error}`)
+        throw error
+      }
+    }
+
+    if (this.tlsClientCert.passphrase) {
+      tlsOptions.passphrase = this.tlsClientCert.passphrase
+      debugLog('Using passphrase for encrypted private key')
+    }
+
+    if (this.tlsClientCert.rejectUnauthorized !== undefined) {
+      tlsOptions.rejectUnauthorized = this.tlsClientCert.rejectUnauthorized
+      if (!tlsOptions.rejectUnauthorized) {
+        log('WARNING: TLS certificate verification disabled (rejectUnauthorized: false)')
+      }
+      debugLog('TLS rejectUnauthorized setting', { rejectUnauthorized: tlsOptions.rejectUnauthorized })
+    }
+
+    debugLog('Creating undici Agent with TLS options')
+    return new Agent({
+      connect: tlsOptions,
+    })
+  }
+
+  /**
+   * Gets the custom agent for HTTP requests
+   * @returns The custom Agent instance or undefined if not configured
+   */
+  getCustomAgent(): Agent | undefined {
+    return this.customAgent
+  }
+
+  /**
    * Gets the authorization server metadata, fetching it if not already available
    * @returns The authorization server metadata, or undefined if unavailable
    */
@@ -88,7 +171,7 @@ export class NodeOAuthClientProvider implements OAuthClientProvider {
 
     // Fetch metadata and cache in memory for this session
     try {
-      this.authorizationServerMetadata = await fetchAuthorizationServerMetadata(this.options.serverUrl)
+      this.authorizationServerMetadata = await fetchAuthorizationServerMetadata(this.options.serverUrl, this.customAgent)
       if (this.authorizationServerMetadata?.scopes_supported) {
         debugLog('Authorization server supports scopes', {
           scopes_supported: this.authorizationServerMetadata.scopes_supported,

@@ -209,6 +209,53 @@ You can specify multiple `--ignore-tool` flags to ignore different patterns. Exa
       ]
 ```
 
+### TLS Client Certificate Authentication
+
+For servers that require mutual TLS (mTLS) authentication, you can provide client certificates using the `--tls-cert`, `--tls-key`, and `--tls-ca` flags:
+
+```json
+      "args": [
+        "mcp-remote",
+        "https://secure.mcp.server/sse",
+        "--tls-cert",
+        "/path/to/client-cert.pem",
+        "--tls-key",
+        "/path/to/client-key.pem",
+        "--tls-ca",
+        "/path/to/ca-cert.pem"
+      ]
+```
+
+**Additional TLS Options:**
+
+* `--tls-passphrase` - Passphrase for encrypted private keys
+* `--tls-allow-self-signed` - Accept self-signed certificates (development only, not recommended for production)
+
+**Example with encrypted key:**
+
+```json
+      "args": [
+        "mcp-remote",
+        "https://secure.mcp.server/sse",
+        "--tls-cert",
+        "/path/to/client-cert.pem",
+        "--tls-key",
+        "/path/to/client-key.pem",
+        "--tls-passphrase",
+        "${TLS_KEY_PASSPHRASE}"
+      ],
+      "env": {
+        "TLS_KEY_PASSPHRASE": "your-secret-passphrase"
+      }
+```
+
+**Security Notes:**
+- Certificate files must be in PEM format
+- Never commit certificates to version control
+- Protect private key files with appropriate permissions (e.g., `chmod 600`)
+- Use `rejectUnauthorized: true` (default) in production
+- For detailed implementation guide, see [docs/CLIENT_CERT_AUTH_GUIDE.md](docs/CLIENT_CERT_AUTH_GUIDE.md)
+
 ### Transport Strategies
 
 MCP Remote supports different transport strategies when connecting to an MCP server. This allows you to control whether it uses Server-Sent Events (SSE) or HTTP transport, and in what order it tries them.

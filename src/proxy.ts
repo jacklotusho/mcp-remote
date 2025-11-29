@@ -16,6 +16,7 @@ import { StaticOAuthClientInformationFull, StaticOAuthClientMetadata } from './l
 import { NodeOAuthClientProvider } from './lib/node-oauth-client-provider'
 import { createLazyAuthCoordinator } from './lib/coordination'
 import { fetchAuthorizationServerMetadata } from './lib/authorization-server-metadata'
+import { fetch as undiciFetch } from 'undici'
 
 /**
  * Main function to run the proxy
@@ -32,6 +33,7 @@ async function runProxy(
   ignoredTools: string[],
   authTimeoutMs: number,
   serverUrlHash: string,
+  tlsClientCert?: import('./lib/types').TLSClientCertConfig,
 ) {
   // Set up event emitter for auth flow
   const events = new EventEmitter()
@@ -39,20 +41,7 @@ async function runProxy(
   // Create a lazy auth coordinator
   const authCoordinator = createLazyAuthCoordinator(serverUrlHash, callbackPort, events, authTimeoutMs)
 
-  // Pre-fetch authorization server metadata for scope validation
-  let authorizationServerMetadata
-  try {
-    authorizationServerMetadata = await fetchAuthorizationServerMetadata(serverUrl)
-    if (authorizationServerMetadata?.scopes_supported) {
-      debugLog('Pre-fetched authorization server metadata', {
-        scopes_supported: authorizationServerMetadata.scopes_supported,
-      })
-    }
-  } catch (error) {
-    debugLog('Failed to pre-fetch authorization server metadata', error)
-  }
-
-  // Create the OAuth client provider
+  // Create the OAuth client provider first (to get custom agent if TLS certs are configured)
   const authProvider = new NodeOAuthClientProvider({
     serverUrl,
     callbackPort,
@@ -62,8 +51,41 @@ async function runProxy(
     staticOAuthClientInfo,
     authorizeResource,
     serverUrlHash,
-    authorizationServerMetadata,
+    tlsClientCert,
   })
+
+  // Get custom agent from provider (for TLS client certificates)
+  const customAgent = authProvider.getCustomAgent()
+
+  // WORKAROUND: Override global fetch when using TLS client certificates
+  // The SDK's StreamableHTTPClientTransport doesn't properly use the custom fetch option
+  // for all requests, so we need to override the global fetch to ensure TLS works
+  if (customAgent) {
+    const originalFetch = globalThis.fetch
+      ; (globalThis as any).fetch = (input: any, init?: any) => {
+        return undiciFetch(input, {
+          ...init,
+          dispatcher: customAgent,
+        } as any)
+      }
+    debugLog('Overrode global fetch to use undici with TLS agent')
+  }
+
+  // Pre-fetch authorization server metadata for scope validation
+  let authorizationServerMetadata
+  try {
+    authorizationServerMetadata = await fetchAuthorizationServerMetadata(serverUrl, customAgent)
+    if (authorizationServerMetadata?.scopes_supported) {
+      debugLog('Pre-fetched authorization server metadata', {
+        scopes_supported: authorizationServerMetadata.scopes_supported,
+      })
+    }
+  } catch (error) {
+    debugLog('Failed to pre-fetch authorization server metadata', error)
+  }
+
+  // Update auth provider with fetched metadata
+  authProvider.options.authorizationServerMetadata = authorizationServerMetadata
 
   // Create the STDIO transport for local connections
   const localTransport = new StdioServerTransport()
@@ -94,7 +116,16 @@ async function runProxy(
 
   try {
     // Connect to remote server with lazy authentication
-    const remoteTransport = await connectToRemoteServer(null, serverUrl, authProvider, headers, authInitializer, transportStrategy)
+    const remoteTransport = await connectToRemoteServer(
+      null,
+      serverUrl,
+      authProvider,
+      headers,
+      authInitializer,
+      transportStrategy,
+      new Set(),
+      customAgent,
+    )
 
     // Set up bidirectional proxy between local and remote transports
     mcpProxy({
@@ -167,6 +198,7 @@ parseCommandLineArgs(process.argv.slice(2), 'Usage: npx tsx proxy.ts <https://se
       ignoredTools,
       authTimeoutMs,
       serverUrlHash,
+      tlsClientCert,
     }) => {
       return runProxy(
         serverUrl,
@@ -180,6 +212,7 @@ parseCommandLineArgs(process.argv.slice(2), 'Usage: npx tsx proxy.ts <https://se
         ignoredTools,
         authTimeoutMs,
         serverUrlHash,
+        tlsClientCert,
       )
     },
   )

@@ -39,6 +39,7 @@ async function runClient(
   staticOAuthClientInfo: StaticOAuthClientInformationFull,
   authTimeoutMs: number,
   serverUrlHash: string,
+  tlsClientCert?: import('./lib/types').TLSClientCertConfig,
 ) {
   // Set up event emitter for auth flow
   const events = new EventEmitter()
@@ -46,10 +47,25 @@ async function runClient(
   // Create a lazy auth coordinator
   const authCoordinator = createLazyAuthCoordinator(serverUrlHash, callbackPort, events, authTimeoutMs)
 
+  // Create the OAuth client provider first (to get custom agent if TLS certs are configured)
+  const authProvider = new NodeOAuthClientProvider({
+    serverUrl,
+    callbackPort,
+    host,
+    clientName: 'MCP CLI Client',
+    staticOAuthClientMetadata,
+    staticOAuthClientInfo,
+    serverUrlHash,
+    tlsClientCert,
+  })
+
+  // Get custom agent from provider (for TLS client certificates)
+  const customAgent = authProvider.getCustomAgent()
+
   // Pre-fetch authorization server metadata for scope validation
   let authorizationServerMetadata
   try {
-    authorizationServerMetadata = await fetchAuthorizationServerMetadata(serverUrl)
+    authorizationServerMetadata = await fetchAuthorizationServerMetadata(serverUrl, customAgent)
     if (authorizationServerMetadata?.scopes_supported) {
       debugLog('Pre-fetched authorization server metadata', {
         scopes_supported: authorizationServerMetadata.scopes_supported,
@@ -59,17 +75,8 @@ async function runClient(
     debugLog('Failed to pre-fetch authorization server metadata', error)
   }
 
-  // Create the OAuth client provider
-  const authProvider = new NodeOAuthClientProvider({
-    serverUrl,
-    callbackPort,
-    host,
-    clientName: 'MCP CLI Client',
-    staticOAuthClientMetadata,
-    staticOAuthClientInfo,
-    serverUrlHash,
-    authorizationServerMetadata,
-  })
+  // Update auth provider with fetched metadata
+  authProvider.options.authorizationServerMetadata = authorizationServerMetadata
 
   // Create the client
   const client = new Client(
@@ -108,19 +115,40 @@ async function runClient(
 
   try {
     // Connect to remote server with lazy authentication
-    const transport = await connectToRemoteServer(client, serverUrl, authProvider, headers, authInitializer, transportStrategy)
+    const transport = await connectToRemoteServer(
+      client,
+      serverUrl,
+      authProvider,
+      headers,
+      authInitializer,
+      transportStrategy,
+      new Set(),
+      customAgent,
+    )
 
-    // Set up message and error handlers
+    // Set up message and error handlers, preserving existing ones set by client.connect()
+    const originalOnMessage = transport.onmessage
     transport.onmessage = (message) => {
       log('Received message:', JSON.stringify(message, null, 2))
+      if (originalOnMessage) {
+        originalOnMessage(message)
+      }
     }
 
+    const originalOnError = transport.onerror
     transport.onerror = (error) => {
       log('Transport error:', error)
+      if (originalOnError) {
+        originalOnError(error)
+      }
     }
 
+    const originalOnClose = transport.onclose
     transport.onclose = () => {
       log('Connection closed.')
+      if (originalOnClose) {
+        originalOnClose()
+      }
       process.exit(0)
     }
 
@@ -185,6 +213,7 @@ parseCommandLineArgs(process.argv.slice(2), 'Usage: npx tsx client.ts <https://s
       staticOAuthClientInfo,
       authTimeoutMs,
       serverUrlHash,
+      tlsClientCert,
     }) => {
       return runClient(
         serverUrl,
@@ -196,6 +225,7 @@ parseCommandLineArgs(process.argv.slice(2), 'Usage: npx tsx client.ts <https://s
         staticOAuthClientInfo,
         authTimeoutMs,
         serverUrlHash,
+        tlsClientCert,
       )
     },
   )

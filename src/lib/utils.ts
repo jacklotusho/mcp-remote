@@ -14,7 +14,7 @@ import fs from 'fs'
 import { readFile, rm } from 'fs/promises'
 import path from 'path'
 import { version as MCP_REMOTE_VERSION } from '../../package.json'
-import { EnvHttpProxyAgent, fetch, Headers, RequestInit, setGlobalDispatcher } from 'undici'
+import { EnvHttpProxyAgent, fetch as undiciFetch, Headers, RequestInit, setGlobalDispatcher } from 'undici'
 
 // Global type declaration for typescript
 declare global {
@@ -258,6 +258,7 @@ export type AuthInitializer = () => Promise<{
  * @param authInitializer Function to initialize authentication when needed
  * @param transportStrategy Strategy for selecting transport type ('sse-only', 'http-only', 'sse-first', 'http-first')
  * @param recursionReasons Set of reasons for recursive calls (internal use)
+ * @param customAgent Optional custom undici Agent for TLS client certificate support
  * @returns The connected transport
  */
 export async function connectToRemoteServer(
@@ -268,6 +269,7 @@ export async function connectToRemoteServer(
   authInitializer: AuthInitializer,
   transportStrategy: TransportStrategy = 'http-first',
   recursionReasons: Set<string> = new Set(),
+  customAgent?: any,
 ): Promise<Transport> {
   log(`[${pid}] Connecting to remote server: ${serverUrl}`)
   const url = new URL(serverUrl)
@@ -276,8 +278,9 @@ export async function connectToRemoteServer(
   const eventSourceInit = {
     fetch: (url: string | URL, init?: RequestInit) => {
       return Promise.resolve(authProvider?.tokens?.()).then((tokens) =>
-        fetch(url, {
+        undiciFetch(url, {
           ...init,
+          dispatcher: customAgent,
           headers: {
             ...(init?.headers instanceof Headers
               ? Object.fromEntries(init?.headers.entries())
@@ -296,18 +299,27 @@ export async function connectToRemoteServer(
   // Choose transport based on user strategy and recursion history
   const shouldAttemptFallback = transportStrategy === 'http-first' || transportStrategy === 'sse-first'
 
+  // Create a custom fetch function that includes the agent
+  const customFetch = (input: string | URL | import('undici').Request, init?: RequestInit) => {
+    return undiciFetch(input, {
+      ...init,
+      dispatcher: customAgent,
+    } as any)
+  }
+
   // Create transport instance based on the strategy
   const sseTransport = transportStrategy === 'sse-only' || transportStrategy === 'sse-first'
   const transport = sseTransport
     ? new SSEClientTransport(url, {
-        authProvider,
-        requestInit: { headers },
-        eventSourceInit,
-      })
+      authProvider,
+      requestInit: { headers, dispatcher: customAgent } as any,
+      eventSourceInit,
+    })
     : new StreamableHTTPClientTransport(url, {
-        authProvider,
-        requestInit: { headers },
-      })
+      authProvider,
+      requestInit: { headers, dispatcher: customAgent } as any,
+      fetch: customFetch as any,
+    })
 
   try {
     debugLog('Attempting to connect to remote server', { sseTransport })
@@ -365,6 +377,7 @@ export async function connectToRemoteServer(
         authInitializer,
         sseTransport ? 'http-only' : 'sse-only',
         recursionReasons,
+        customAgent,
       )
     } else if (error instanceof UnauthorizedError || (error instanceof Error && error.message.includes('Unauthorized'))) {
       log('Authentication required. Initializing auth...')
@@ -409,7 +422,16 @@ export async function connectToRemoteServer(
         debugLog('Recursively reconnecting after auth', { recursionReasons: Array.from(recursionReasons) })
 
         // Recursively call connectToRemoteServer with the updated recursion tracking
-        return connectToRemoteServer(client, serverUrl, authProvider, headers, authInitializer, transportStrategy, recursionReasons)
+        return connectToRemoteServer(
+          client,
+          serverUrl,
+          authProvider,
+          headers,
+          authInitializer,
+          transportStrategy,
+          recursionReasons,
+          customAgent,
+        )
       } catch (authError: any) {
         log('Authorization error:', authError)
         debugLog('Authorization error during finishAuth', {
@@ -789,6 +811,43 @@ export async function parseCommandLineArgs(args: string[], usage: string) {
     })
   }
 
+  // Parse TLS client certificate options
+  let tlsClientCert: import('./types').TLSClientCertConfig | undefined
+  const certIndex = args.indexOf('--tls-cert')
+  const keyIndex = args.indexOf('--tls-key')
+  const caIndex = args.indexOf('--tls-ca')
+  const passphraseIndex = args.indexOf('--tls-passphrase')
+  const allowSelfSignedIndex = args.indexOf('--tls-allow-self-signed')
+
+  if (certIndex !== -1 || keyIndex !== -1 || caIndex !== -1) {
+    tlsClientCert = {}
+
+    if (certIndex !== -1 && certIndex < args.length - 1) {
+      tlsClientCert.cert = args[certIndex + 1]
+      log(`Using TLS client certificate: ${tlsClientCert.cert}`)
+    }
+
+    if (keyIndex !== -1 && keyIndex < args.length - 1) {
+      tlsClientCert.key = args[keyIndex + 1]
+      log(`Using TLS client key: ${tlsClientCert.key}`)
+    }
+
+    if (caIndex !== -1 && caIndex < args.length - 1) {
+      tlsClientCert.ca = args[caIndex + 1]
+      log(`Using TLS CA certificate: ${tlsClientCert.ca}`)
+    }
+
+    if (passphraseIndex !== -1 && passphraseIndex < args.length - 1) {
+      tlsClientCert.passphrase = args[passphraseIndex + 1]
+      log('Using TLS key passphrase (hidden)')
+    }
+
+    if (allowSelfSignedIndex !== -1) {
+      tlsClientCert.rejectUnauthorized = false
+      log('WARNING: Accepting self-signed certificates (not recommended for production)')
+    }
+  }
+
   return {
     serverUrl,
     callbackPort,
@@ -802,6 +861,7 @@ export async function parseCommandLineArgs(args: string[], usage: string) {
     ignoredTools,
     authTimeoutMs,
     serverUrlHash,
+    tlsClientCert,
   }
 }
 

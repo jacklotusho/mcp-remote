@@ -1,6 +1,17 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { fetchAuthorizationServerMetadata, getMetadataUrl } from './authorization-server-metadata'
 
+// Mock undici module
+vi.mock('undici', async () => {
+  const actual = await vi.importActual('undici')
+  return {
+    ...actual,
+    fetch: vi.fn(),
+  }
+})
+
+import { fetch } from 'undici'
+
 describe('authorization-server-metadata', () => {
   describe('getMetadataUrl', () => {
     it('should construct correct well-known URL', () => {
@@ -20,14 +31,8 @@ describe('authorization-server-metadata', () => {
   })
 
   describe('fetchAuthorizationServerMetadata', () => {
-    let originalFetch: typeof global.fetch
-
     beforeEach(() => {
-      originalFetch = global.fetch
-    })
-
-    afterEach(() => {
-      global.fetch = originalFetch
+      vi.clearAllMocks()
     })
 
     it('should fetch and parse metadata successfully', async () => {
@@ -39,16 +44,16 @@ describe('authorization-server-metadata', () => {
         response_types_supported: ['code'],
       }
 
-      global.fetch = vi.fn().mockResolvedValue({
+      vi.mocked(fetch).mockResolvedValue({
         ok: true,
         status: 200,
         json: async () => mockMetadata,
-      })
+      } as any)
 
       const metadata = await fetchAuthorizationServerMetadata('https://example.com/mcp')
 
       expect(metadata).toEqual(mockMetadata)
-      expect(global.fetch).toHaveBeenCalledWith(
+      expect(fetch).toHaveBeenCalledWith(
         'https://example.com/.well-known/oauth-authorization-server',
         expect.objectContaining({
           headers: {
@@ -59,11 +64,11 @@ describe('authorization-server-metadata', () => {
     })
 
     it('should return undefined on 404', async () => {
-      global.fetch = vi.fn().mockResolvedValue({
+      vi.mocked(fetch).mockResolvedValue({
         ok: false,
         status: 404,
         statusText: 'Not Found',
-      })
+      } as any)
 
       const metadata = await fetchAuthorizationServerMetadata('https://example.com/mcp')
 
@@ -71,11 +76,11 @@ describe('authorization-server-metadata', () => {
     })
 
     it('should return undefined on other HTTP errors', async () => {
-      global.fetch = vi.fn().mockResolvedValue({
+      vi.mocked(fetch).mockResolvedValue({
         ok: false,
         status: 500,
         statusText: 'Internal Server Error',
-      })
+      } as any)
 
       const metadata = await fetchAuthorizationServerMetadata('https://example.com/mcp')
 
@@ -83,7 +88,7 @@ describe('authorization-server-metadata', () => {
     })
 
     it('should return undefined on network errors', async () => {
-      global.fetch = vi.fn().mockRejectedValue(new Error('Network error'))
+      vi.mocked(fetch).mockRejectedValue(new Error('Network error'))
 
       const metadata = await fetchAuthorizationServerMetadata('https://example.com/mcp')
 
@@ -91,7 +96,7 @@ describe('authorization-server-metadata', () => {
     })
 
     it('should handle timeout errors', async () => {
-      global.fetch = vi.fn().mockRejectedValue(new Error('Timeout'))
+      vi.mocked(fetch).mockRejectedValue(new Error('Timeout'))
 
       const metadata = await fetchAuthorizationServerMetadata('https://example.com/mcp')
 
@@ -106,11 +111,11 @@ describe('authorization-server-metadata', () => {
         // No scopes_supported
       }
 
-      global.fetch = vi.fn().mockResolvedValue({
+      vi.mocked(fetch).mockResolvedValue({
         ok: true,
         status: 200,
         json: async () => mockMetadata,
-      })
+      } as any)
 
       const metadata = await fetchAuthorizationServerMetadata('https://example.com/mcp')
 
@@ -124,11 +129,11 @@ describe('authorization-server-metadata', () => {
         scopes_supported: [],
       }
 
-      global.fetch = vi.fn().mockResolvedValue({
+      vi.mocked(fetch).mockResolvedValue({
         ok: true,
         status: 200,
         json: async () => mockMetadata,
-      })
+      } as any)
 
       const metadata = await fetchAuthorizationServerMetadata('https://example.com/mcp')
 

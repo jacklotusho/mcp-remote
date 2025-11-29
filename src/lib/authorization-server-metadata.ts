@@ -1,4 +1,5 @@
 import { debugLog } from './utils'
+import { Agent, fetch } from 'undici'
 
 /**
  * OAuth 2.0 Authorization Server Metadata as defined in RFC 8414
@@ -41,9 +42,13 @@ export function getMetadataUrl(serverUrl: string): string {
 /**
  * Fetches OAuth 2.0 Authorization Server Metadata from the well-known endpoint
  * @param serverUrl The server URL to fetch metadata for
+ * @param customAgent Optional custom undici Agent for TLS client certificate support
  * @returns The authorization server metadata, or undefined if fetch fails
  */
-export async function fetchAuthorizationServerMetadata(serverUrl: string): Promise<AuthorizationServerMetadata | undefined> {
+export async function fetchAuthorizationServerMetadata(
+  serverUrl: string,
+  customAgent?: Agent,
+): Promise<AuthorizationServerMetadata | undefined> {
   const metadataUrl = getMetadataUrl(serverUrl)
 
   debugLog('Fetching authorization server metadata', { serverUrl, metadataUrl })
@@ -55,6 +60,8 @@ export async function fetchAuthorizationServerMetadata(serverUrl: string): Promi
       },
       // Short timeout to avoid blocking
       signal: AbortSignal.timeout(5000),
+      // Use custom agent if provided (for TLS client certificates)
+      dispatcher: customAgent,
     })
 
     if (!response.ok) {

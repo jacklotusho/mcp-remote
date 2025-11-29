@@ -3,6 +3,22 @@ import { OAuthClientInformationFull, OAuthClientMetadata } from '@modelcontextpr
 import type { AuthorizationServerMetadata } from './authorization-server-metadata'
 
 /**
+ * TLS/SSL client certificate configuration
+ */
+export interface TLSClientCertConfig {
+  /** Path to client certificate file (PEM format) */
+  cert?: string
+  /** Path to client private key file (PEM format) */
+  key?: string
+  /** Path to CA certificate file (PEM format) for server verification */
+  ca?: string
+  /** Passphrase for the private key (if encrypted) */
+  passphrase?: string
+  /** If true, accept self-signed certificates (NOT recommended for production) */
+  rejectUnauthorized?: boolean
+}
+
+/**
  * Options for creating an OAuth client provider
  */
 export interface OAuthProviderOptions {
@@ -34,6 +50,8 @@ export interface OAuthProviderOptions {
   serverUrlHash: string
   /** Authorization server metadata (optional, fetched if not provided) */
   authorizationServerMetadata?: AuthorizationServerMetadata
+  /** TLS client certificate configuration */
+  tlsClientCert?: TLSClientCertConfig
 }
 
 /**
