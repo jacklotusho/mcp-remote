@@ -2,6 +2,8 @@
 
 ## Commands
 
+- **Install pnpm**: `npm install -g pnpm`
+- **Install dependencies**: `pnpm install`
 - **Build**: `pnpm build` (or `pnpm build:watch` for development)
 - **Type check**: `pnpm check` (runs prettier and tsc)
 - **Lint/Format**: `pnpm lint-fix` (prettier with write)
