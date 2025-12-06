@@ -9,6 +9,7 @@
 
 1. **Install dependencies:**
    ```bash
+   npm install -g pnpm
    pnpm install
    ```
 
