@@ -14,6 +14,12 @@ With the latest MCP [Authorization specification](https://modelcontextprotocol.i
 
 That's where `mcp-remote` comes in. As soon as your chosen MCP client supports remote, authorized servers, you can remove it. Until that time, drop in this one liner and dress for the MCP clients you want!
 
+## Installation
+
+For global installation instructions, see [INSTALL.md](INSTALL.md).
+
+For quick usage with `npx`, no installation is required - see the [Usage](#usage) section below.
+
 ## Usage
 
 All the most popular MCP clients (Claude Desktop, Cursor & Windsurf) use the following config format:

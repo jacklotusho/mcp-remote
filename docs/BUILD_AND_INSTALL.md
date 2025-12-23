@@ -19,6 +19,10 @@
    ```
    This compiles the TypeScript source code into the `dist/` directory.
 
+## Global Installation
+
+For instructions on installing `mcp-remote` globally on your machine, see [INSTALL.md](../INSTALL.md) in the root directory.
+
 ## Running the Client
 
 You can run the client in two ways:
