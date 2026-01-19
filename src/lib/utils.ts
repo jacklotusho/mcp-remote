@@ -239,26 +239,34 @@ export function mcpProxy({
   }
 
   function onServerError(error: Error) {
+    // Check if this is an SSE stream error
+    const isSseStreamError = (error as any).code === 404 && error.message.includes('Failed to open SSE stream')
+
+    // If using http-only transport and this is an SSE error, suppress the error log (it's expected)
+    if (transportStrategy === 'http-only' && isSseStreamError) {
+      debugLog('SSE stream not available (404) - this is expected with http-only transport')
+
+      // Show the note only once
+      if (!sseErrorShown) {
+        sseErrorShown = true
+        log('Note: SSE streaming is not available on this server. Using HTTP POST for all communication.')
+      }
+      return
+    }
+
+    // For all other errors, log them normally
     log('Error from remote server:', error)
     debugLog('Error from remote server', { stack: error.stack })
 
-    // Check if this is an SSE stream error
-    if (!sseErrorShown && (error as any).code === 404 && error.message.includes('Failed to open SSE stream')) {
+    // Show help message for SSE errors with other transport strategies
+    if (!sseErrorShown && isSseStreamError) {
       sseErrorShown = true
-
-      // If using http-only, this is expected - just log once at debug level
-      if (transportStrategy === 'http-only') {
-        debugLog('SSE stream not available (404) - this is expected with http-only transport')
-        log('Note: SSE streaming is not available on this server. Using HTTP POST for all communication.')
-      } else {
-        // For other strategies, show the help message
-        log('\n⚠️  SSE Connection Error Detected (404)')
-        log('The server returned 404 for the SSE endpoint.')
-        log('\nThe default http-first transport tries to use SSE for server-to-client messages.')
-        log('Since the server does not have an SSE endpoint, try using HTTP-only transport:')
-        log('\n  npx mcp-remote <server-url> --transport http-only')
-        log('\nNote: The error will continue to repeat until you restart with the correct transport.\n')
-      }
+      log('\n⚠️  SSE Connection Error Detected (404)')
+      log('The server returned 404 for the SSE endpoint.')
+      log('\nThe default http-first transport tries to use SSE for server-to-client messages.')
+      log('Since the server does not have an SSE endpoint, try using HTTP-only transport:')
+      log('\n  npx mcp-remote <server-url> --transport http-only')
+      log('\nNote: The error will continue to repeat until you restart with the correct transport.\n')
     }
   }
 }
