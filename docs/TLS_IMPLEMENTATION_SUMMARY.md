@@ -167,16 +167,19 @@ npx mcp-remote https://secure.server.com/mcp \
 ### Key Changes
 
 1. **`src/lib/utils.ts`**:
+
    - Imported `fetch` from `undici` as `undiciFetch` to avoid conflicts with global fetch
    - Updated `customFetch` function to use `undiciFetch` with the TLS agent
    - Updated `eventSourceInit.fetch` to use `undiciFetch` with the TLS agent
    - Fixed `StreamableHTTPClientTransport` SSE connection by passing custom `fetch` function
 
 2. **`src/client.ts`**:
+
    - Fixed event handler chaining to prevent overwriting SDK's internal handlers
    - This ensures the Client can receive and process server responses
 
 3. **`src/proxy.ts`**:
+
    - Added global `fetch` override when TLS client certificates are provided
    - This workaround is necessary because the SDK's `StreamableHTTPClientTransport` doesn't properly use the custom fetch option for all requests
    - The override ensures all fetch calls use `undici`'s fetch with the TLS agent

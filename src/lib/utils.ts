@@ -121,13 +121,16 @@ export function mcpProxy({
   transportToClient,
   transportToServer,
   ignoredTools = [],
+  transportStrategy = 'http-first',
 }: {
   transportToClient: Transport
   transportToServer: Transport
   ignoredTools?: string[]
+  transportStrategy?: TransportStrategy
 }) {
   let transportToClientClosed = false
   let transportToServerClosed = false
+  let sseErrorShown = false
 
   const messageTransformer = createMessageTransformer({
     transformRequestFunction: (request: Message) => {
@@ -238,6 +241,25 @@ export function mcpProxy({
   function onServerError(error: Error) {
     log('Error from remote server:', error)
     debugLog('Error from remote server', { stack: error.stack })
+
+    // Check if this is an SSE stream error
+    if (!sseErrorShown && (error as any).code === 404 && error.message.includes('Failed to open SSE stream')) {
+      sseErrorShown = true
+
+      // If using http-only, this is expected - just log once at debug level
+      if (transportStrategy === 'http-only') {
+        debugLog('SSE stream not available (404) - this is expected with http-only transport')
+        log('Note: SSE streaming is not available on this server. Using HTTP POST for all communication.')
+      } else {
+        // For other strategies, show the help message
+        log('\n⚠️  SSE Connection Error Detected (404)')
+        log('The server returned 404 for the SSE endpoint.')
+        log('\nThe default http-first transport tries to use SSE for server-to-client messages.')
+        log('Since the server does not have an SSE endpoint, try using HTTP-only transport:')
+        log('\n  npx mcp-remote <server-url> --transport http-only')
+        log('\nNote: The error will continue to repeat until you restart with the correct transport.\n')
+      }
+    }
   }
 }
 
@@ -311,15 +333,15 @@ export async function connectToRemoteServer(
   const sseTransport = transportStrategy === 'sse-only' || transportStrategy === 'sse-first'
   const transport = sseTransport
     ? new SSEClientTransport(url, {
-      authProvider,
-      requestInit: { headers, dispatcher: customAgent } as any,
-      eventSourceInit,
-    })
+        authProvider,
+        requestInit: { headers, dispatcher: customAgent } as any,
+        eventSourceInit,
+      })
     : new StreamableHTTPClientTransport(url, {
-      authProvider,
-      requestInit: { headers, dispatcher: customAgent } as any,
-      fetch: customFetch as any,
-    })
+        authProvider,
+        requestInit: { headers, dispatcher: customAgent } as any,
+        fetch: customFetch as any,
+      })
 
   try {
     debugLog('Attempting to connect to remote server', { sseTransport })
@@ -336,23 +358,50 @@ export async function connectToRemoteServer(
         // the client is already connected. So let's just create a one-off client to make a single request and figure
         // out if we're actually talking to an HTTP server or not.
         debugLog('Creating test transport for HTTP-only connection test')
-        const testTransport = new StreamableHTTPClientTransport(url, { authProvider, requestInit: { headers } })
+        const testTransport = new StreamableHTTPClientTransport(url, {
+          authProvider,
+          requestInit: { headers, dispatcher: customAgent } as any,
+          fetch: customFetch as any,
+        })
         const testClient = new Client({ name: 'mcp-remote-fallback-test', version: '0.0.0' }, { capabilities: {} })
         await testClient.connect(testTransport)
+        debugLog('Test connection successful')
       }
     }
     log(`Connected to remote server using ${transport.constructor.name}`)
 
     return transport
   } catch (error: any) {
+    // Log the full error for debugging
+    debugLog('Connection error caught', {
+      errorMessage: error.message,
+      errorCode: error.code,
+      errorName: error.name,
+      transportType: transport.constructor.name,
+      sseTransport,
+      transportStrategy,
+    })
+
+    // Check if it's an SSE error with 400 status (server doesn't support SSE)
+    if (sseTransport && (error as any).code === 400 && error.message.includes('Non-200 status code')) {
+      log(`\n⚠️  SSE Connection Failed (400 Bad Request)`)
+      log('The server does not support SSE (Server-Sent Events).')
+      log('\nTry using HTTP-only transport instead:')
+      log('  npx mcp-remote <server-url> --transport http-only\n')
+      throw error
+    }
+
     // Check if it's a protocol error and we should attempt fallback
     if (
-      error instanceof Error &&
       shouldAttemptFallback &&
+      error instanceof Error &&
       (error.message.includes('405') ||
         error.message.includes('Method Not Allowed') ||
         error.message.includes('404') ||
-        error.message.includes('Not Found'))
+        error.message.includes('Not Found') ||
+        error.message.includes('Failed to open SSE stream') ||
+        (error as any).code === 404 ||
+        (error as any).code === 405)
     ) {
       log(`Received error: ${error.message}`)
 

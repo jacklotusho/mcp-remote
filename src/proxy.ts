@@ -62,12 +62,12 @@ async function runProxy(
   // for all requests, so we need to override the global fetch to ensure TLS works
   if (customAgent) {
     const originalFetch = globalThis.fetch
-      ; (globalThis as any).fetch = (input: any, init?: any) => {
-        return undiciFetch(input, {
-          ...init,
-          dispatcher: customAgent,
-        } as any)
-      }
+    ;(globalThis as any).fetch = (input: any, init?: any) => {
+      return undiciFetch(input, {
+        ...init,
+        dispatcher: customAgent,
+      } as any)
+    }
     debugLog('Overrode global fetch to use undici with TLS agent')
   }
 
@@ -132,6 +132,7 @@ async function runProxy(
       transportToClient: localTransport,
       transportToServer: remoteTransport,
       ignoredTools,
+      transportStrategy,
     })
 
     // Start the local STDIO server

@@ -8,6 +8,7 @@
 ## Building Locally
 
 1. **Install dependencies:**
+
    ```bash
    npm install -g pnpm
    pnpm install
@@ -28,17 +29,23 @@ For instructions on installing `mcp-remote` globally on your machine, see [INSTA
 You can run the client in two ways:
 
 ### 1. From Source (Development)
+
 Use `tsx` to run the TypeScript file directly:
+
 ```bash
 npx tsx src/client.ts <server-url> [options]
 ```
 
 ### 2. From Build (Production/Verification)
+
 Run the compiled JavaScript file:
+
 ```bash
 node dist/client.js <server-url> [options]
 ```
+
 Or use the binary alias if installed:
+
 ```bash
 npx mcp-remote-client <server-url> [options]
 ```
@@ -48,15 +55,19 @@ npx mcp-remote-client <server-url> [options]
 The proxy is the main component used by MCP clients like Claude Desktop.
 
 ### 1. From Source
+
 ```bash
 npx tsx src/proxy.ts <server-url> [options]
 ```
 
 ### 2. From Build
+
 ```bash
 node dist/proxy.js <server-url> [options]
 ```
+
 Or:
+
 ```bash
 npx mcp-remote <server-url> [options]
 ```

@@ -143,6 +143,7 @@ mcp-remote https://localhost:8443/mcp \
 ### 1. Update Claude Desktop Config
 
 Edit your Claude Desktop config file:
+
 - macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
 - Windows: `%APPDATA%\Claude\claude_desktop_config.json`
 
