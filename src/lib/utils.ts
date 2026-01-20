@@ -351,6 +351,16 @@ export async function connectToRemoteServer(
         fetch: customFetch as any,
       })
 
+  // For http-only transport, override the _startOrAuthSse method to prevent SSE connection attempts
+  if (transportStrategy === 'http-only' && !sseTransport) {
+    const originalStartOrAuthSse = (transport as any)._startOrAuthSse
+    ;(transport as any)._startOrAuthSse = async function (options: any) {
+      // Do nothing - skip SSE connection attempts entirely for http-only mode
+      debugLog('Skipping SSE connection attempt (http-only mode)')
+      return Promise.resolve()
+    }
+  }
+
   try {
     debugLog('Attempting to connect to remote server', { sseTransport })
 
@@ -371,6 +381,15 @@ export async function connectToRemoteServer(
           requestInit: { headers, dispatcher: customAgent } as any,
           fetch: customFetch as any,
         })
+        
+        // For http-only transport, override the _startOrAuthSse method on test transport too
+        if (transportStrategy === 'http-only') {
+          ;(testTransport as any)._startOrAuthSse = async function (options: any) {
+            debugLog('Skipping SSE connection attempt on test transport (http-only mode)')
+            return Promise.resolve()
+          }
+        }
+        
         const testClient = new Client({ name: 'mcp-remote-fallback-test', version: '0.0.0' }, { capabilities: {} })
         await testClient.connect(testTransport)
         debugLog('Test connection successful')
